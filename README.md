@@ -19,7 +19,7 @@ Clone the following repo to download all sample code
 To clone the repo, run the following command:
 
 ```shell
-git clone <repo>
+git clone https://github.com/ajaydhaked/RISCV-Spectre-Attack.git
 ```
 
 ## Install gem5 dependencies
