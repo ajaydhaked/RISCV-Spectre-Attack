@@ -59,7 +59,7 @@ Configure the build folder where binaries of the compiler would reside
 
 Build the toolchain and export the PATH
 ```shell
-sudo make linux -j$(nproc)
+sudo make linux
 export PATH=$PATH:/opt/riscv/bin/
 ```
 
