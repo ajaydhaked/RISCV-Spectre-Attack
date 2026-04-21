@@ -68,13 +68,8 @@ Run the following commands from root of this repository to compile Spectre v1 at
 
 ```shell
 cd v1_attack
-riscv64-unknown-linux-gnu-gcc spectre_working.c -o spectre_working  -static
+riscv64-unknown-linux-gnu-gcc ./v1_attack/spectre_working.c -o spectre_working  -static
 ```
-> Note: There might be an error at this step as the compiler binary naming can differ from system to system, follow these steps to get binary name:
-> * Run the following commands
-> * ``` cd /opt/riscv/bin ```
-> * ``` find | grep '^./riscv64-unknown.*gcc$' ```
-> * Use the filename of the binary found in the above step instead of riscv64-unknown-linux-gnu-gcc
 
 ## Run Spectre v1 attack RISC-V OoO core
 Run the following commands from root of this repository to run Spectre v1 attack on gem5
