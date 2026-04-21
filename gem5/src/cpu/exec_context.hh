@@ -42,9 +42,7 @@
 #ifndef __CPU_EXEC_CONTEXT_HH__
 #define __CPU_EXEC_CONTEXT_HH__
 
-#include "arch/vecregs.hh"
 #include "base/types.hh"
-#include "config/the_isa.hh"
 #include "cpu/base.hh"
 #include "cpu/reg_class.hh"
 #include "cpu/static_inst_fwd.hh"
@@ -73,6 +71,7 @@ namespace gem5
 class ExecContext
 {
   public:
+    virtual ~ExecContext() = default;
 
     virtual RegVal getRegOperand(const StaticInst *si, int idx) = 0;
     virtual void getRegOperand(const StaticInst *si, int idx, void *val) = 0;

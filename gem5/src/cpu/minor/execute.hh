@@ -59,7 +59,6 @@
 namespace gem5
 {
 
-GEM5_DEPRECATED_NAMESPACE(Minor, minor);
 namespace minor
 {
 
@@ -357,6 +356,12 @@ class Execute : public Named
     /** Like the drain interface on SimObject */
     unsigned int drain();
     void drainResume();
+
+    struct IssueStats : public statistics::Group
+    {
+        IssueStats(MinorCPU *cpu);
+        statistics::Vector2d issuedInstType;
+    } issueStats;
 };
 
 } // namespace minor

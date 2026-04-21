@@ -1,6 +1,7 @@
 /*
- * Copyright (c) 2011-2012, 2014, 2016, 2017, 2019-2020 ARM Limited
+ * Copyright (c) 2011-2012, 2014, 2016, 2017, 2019-2020, 2024 Arm Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
+ * Copyright (c) 2022-2023 The University of Edinburgh
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -42,7 +43,6 @@
 
 #include "cpu/o3/cpu.hh"
 
-#include "config/the_isa.hh"
 #include "cpu/activity.hh"
 #include "cpu/checker/cpu.hh"
 #include "cpu/checker/thread_context.hh"
@@ -73,25 +73,24 @@ namespace o3
 CPU::CPU(const BaseO3CPUParams &params)
     : BaseCPU(params),
       mmu(params.mmu),
-      tickEvent([this]{ tick(); }, "O3CPU tick",
-                false, Event::CPU_Tick_Pri),
-      threadExitEvent([this]{ exitThreads(); }, "O3CPU exit threads",
-                false, Event::CPU_Exit_Pri),
+      tickEvent([this] { tick(); }, "O3CPU tick", false, Event::CPU_Tick_Pri),
+      threadExitEvent([this] { exitThreads(); }, "O3CPU exit threads", false,
+                      Event::CPU_Exit_Pri),
 #ifndef NDEBUG
       instcount(0),
 #endif
       removeInstsThisCycle(false),
+      bac(this, params),
+      ftq(this, params),
       fetch(this, params),
       decode(this, params),
       rename(this, params),
       iew(this, params),
       commit(this, params),
 
-      regFile(params.numPhysIntRegs,
-              params.numPhysFloatRegs,
-              params.numPhysVecRegs,
-              params.numPhysVecPredRegs,
-              params.numPhysCCRegs,
+      regFile(params.numPhysIntRegs, params.numPhysFloatRegs,
+              params.numPhysVecRegs, params.numPhysVecPredRegs,
+              params.numPhysMatRegs, params.numPhysCCRegs,
               params.isa[0]->regClasses()),
 
       freeList(name() + ".freelist", &regFile),
@@ -108,10 +107,10 @@ CPU::CPU(const BaseO3CPUParams &params)
       renameQueue(params.backComSize, params.forwardComSize),
       iewQueue(params.backComSize, params.forwardComSize),
       activityRec(name(), NumStages,
-                  params.backComSize + params.forwardComSize,
-                  params.activity),
+                  params.backComSize + params.forwardComSize, params.activity),
 
       globalSeqNum(1),
+      globalFTSeqNum(1),
       system(params.system),
       lastRunningCycle(curCycle()),
       cpuStats(this)
@@ -148,6 +147,7 @@ CPU::CPU(const BaseO3CPUParams &params)
     // to the upper level CPU, and not this CPU.
 
     // Set up Pointers to the activeThreads list for each stage
+    bac.setActiveThreads(&activeThreads);
     fetch.setActiveThreads(&activeThreads);
     decode.setActiveThreads(&activeThreads);
     rename.setActiveThreads(&activeThreads);
@@ -155,6 +155,7 @@ CPU::CPU(const BaseO3CPUParams &params)
     commit.setActiveThreads(&activeThreads);
 
     // Give each of the stages the time buffer they will use.
+    bac.setTimeBuffer(&timeBuffer);
     fetch.setTimeBuffer(&timeBuffer);
     decode.setTimeBuffer(&timeBuffer);
     rename.setTimeBuffer(&timeBuffer);
@@ -162,6 +163,8 @@ CPU::CPU(const BaseO3CPUParams &params)
     commit.setTimeBuffer(&timeBuffer);
 
     // Also setup each of the stages' queues.
+    bac.setFetchTargetQueue(&ftq);
+    fetch.setBACandFTQPtr(&bac, &ftq);
     fetch.setFetchQueue(&fetchQueue);
     decode.setFetchQueue(&fetchQueue);
     commit.setFetchQueue(&fetchQueue);
@@ -193,20 +196,40 @@ CPU::CPU(const BaseO3CPUParams &params)
     assert(numThreads);
     const auto &regClasses = params.isa[0]->regClasses();
 
-    assert(params.numPhysIntRegs >=
-            numThreads * regClasses.at(IntRegClass).numRegs());
-    assert(params.numPhysFloatRegs >=
-            numThreads * regClasses.at(FloatRegClass).numRegs());
-    assert(params.numPhysVecRegs >=
-            numThreads * regClasses.at(VecRegClass).numRegs());
-    assert(params.numPhysVecPredRegs >=
-            numThreads * regClasses.at(VecPredRegClass).numRegs());
-    assert(params.numPhysCCRegs >=
-            numThreads * regClasses.at(CCRegClass).numRegs());
+    panic_if(params.numPhysIntRegs <=
+            numThreads * regClasses.at(IntRegClass)->numRegs() &&
+            regClasses.at(IntRegClass)->numRegs() != 0,
+            "Not enough physical registers, consider increasing "
+            "numPhysIntRegs\n");
+    panic_if(params.numPhysFloatRegs <=
+            numThreads * regClasses.at(FloatRegClass)->numRegs() &&
+            regClasses.at(FloatRegClass)->numRegs() != 0,
+            "Not enough physical registers, consider increasing "
+            "numPhysFloatRegs\n");
+    panic_if(params.numPhysVecRegs <=
+            numThreads * regClasses.at(VecRegClass)->numRegs() &&
+            regClasses.at(VecRegClass)->numRegs() != 0,
+            "Not enough physical registers, consider increasing "
+            "numPhysVecRegs\n");
+    panic_if(params.numPhysVecPredRegs <=
+            numThreads * regClasses.at(VecPredRegClass)->numRegs() &&
+            regClasses.at(VecPredRegClass)->numRegs() != 0,
+            "Not enough physical registers, consider increasing "
+            "numPhysVecPredRegs\n");
+    panic_if(params.numPhysMatRegs <=
+            numThreads * regClasses.at(MatRegClass)->numRegs() &&
+            regClasses.at(MatRegClass)->numRegs() != 0,
+            "Not enough physical registers, consider increasing "
+            "numPhysMatRegs\n");
+    panic_if(params.numPhysCCRegs <=
+            numThreads * regClasses.at(CCRegClass)->numRegs() &&
+            regClasses.at(CCRegClass)->numRegs() != 0,
+            "Not enough physical registers, consider increasing "
+            "numPhysCCRegs\n");
 
     // Just make this a warning and go ahead anyway, to keep from having to
     // add checks everywhere.
-    warn_if(regClasses.at(CCRegClass).numRegs() == 0 &&
+    warn_if(regClasses.at(CCRegClass)->numRegs() == 0 &&
             params.numPhysCCRegs != 0,
             "Non-zero number of physical CC regs specified, even though\n"
             "    ISA does not use them.");
@@ -216,7 +239,7 @@ CPU::CPU(const BaseO3CPUParams &params)
 
     // Setup the rename map for whichever stages need it.
     for (ThreadID tid = 0; tid < numThreads; tid++) {
-        isa[tid] = dynamic_cast<TheISA::ISA *>(params.isa[tid]);
+        isa[tid] = params.isa[tid];
         commitRenameMap[tid].init(regClasses, &regFile, &freeList);
         renameMap[tid].init(regClasses, &regFile, &freeList);
     }
@@ -226,14 +249,12 @@ CPU::CPU(const BaseO3CPUParams &params)
     for (ThreadID tid = 0; tid < active_threads; tid++) {
         for (auto type = (RegClassType)0; type <= CCRegClass;
                 type = (RegClassType)(type + 1)) {
-            for (RegIndex ridx = 0; ridx < regClasses.at(type).numRegs();
-                    ++ridx) {
+            for (auto &id: *regClasses.at(type)) {
                 // Note that we can't use the rename() method because we don't
                 // want special treatment for the zero register at this point
-                RegId rid = RegId(type, ridx);
                 PhysRegIdPtr phys_reg = freeList.getReg(type);
-                renameMap[tid].setEntry(rid, phys_reg);
-                commitRenameMap[tid].setEntry(rid, phys_reg);
+                renameMap[tid].setEntry(id, phys_reg);
+                commitRenameMap[tid].setEntry(id, phys_reg);
             }
         }
     }
@@ -312,6 +333,8 @@ CPU::regProbePoints()
         std::pair<DynInstPtr, PacketPtr>>(
                 getProbeManager(), "DataAccessComplete");
 
+    ftq.regProbePoints();
+    bac.regProbePoints();
     fetch.regProbePoints();
     rename.regProbePoints();
     iew.regProbePoints();
@@ -328,47 +351,7 @@ CPU::CPUStats::CPUStats(CPU *cpu)
                "to idling"),
       ADD_STAT(quiesceCycles, statistics::units::Cycle::get(),
                "Total number of cycles that CPU has spent quiesced or waiting "
-               "for an interrupt"),
-      ADD_STAT(committedInsts, statistics::units::Count::get(),
-               "Number of Instructions Simulated"),
-      ADD_STAT(committedOps, statistics::units::Count::get(),
-               "Number of Ops (including micro ops) Simulated"),
-      ADD_STAT(cpi, statistics::units::Rate<
-                    statistics::units::Cycle, statistics::units::Count>::get(),
-               "CPI: Cycles Per Instruction"),
-      ADD_STAT(totalCpi, statistics::units::Rate<
-                    statistics::units::Cycle, statistics::units::Count>::get(),
-               "CPI: Total CPI of All Threads"),
-      ADD_STAT(ipc, statistics::units::Rate<
-                    statistics::units::Count, statistics::units::Cycle>::get(),
-               "IPC: Instructions Per Cycle"),
-      ADD_STAT(totalIpc, statistics::units::Rate<
-                    statistics::units::Count, statistics::units::Cycle>::get(),
-               "IPC: Total IPC of All Threads"),
-      ADD_STAT(intRegfileReads, statistics::units::Count::get(),
-               "Number of integer regfile reads"),
-      ADD_STAT(intRegfileWrites, statistics::units::Count::get(),
-               "Number of integer regfile writes"),
-      ADD_STAT(fpRegfileReads, statistics::units::Count::get(),
-               "Number of floating regfile reads"),
-      ADD_STAT(fpRegfileWrites, statistics::units::Count::get(),
-               "Number of floating regfile writes"),
-      ADD_STAT(vecRegfileReads, statistics::units::Count::get(),
-               "number of vector regfile reads"),
-      ADD_STAT(vecRegfileWrites, statistics::units::Count::get(),
-               "number of vector regfile writes"),
-      ADD_STAT(vecPredRegfileReads, statistics::units::Count::get(),
-               "number of predicate regfile reads"),
-      ADD_STAT(vecPredRegfileWrites, statistics::units::Count::get(),
-               "number of predicate regfile writes"),
-      ADD_STAT(ccRegfileReads, statistics::units::Count::get(),
-               "number of cc regfile reads"),
-      ADD_STAT(ccRegfileWrites, statistics::units::Count::get(),
-               "number of cc regfile writes"),
-      ADD_STAT(miscRegfileReads, statistics::units::Count::get(),
-               "number of misc regfile reads"),
-      ADD_STAT(miscRegfileWrites, statistics::units::Count::get(),
-               "number of misc regfile writes")
+               "for an interrupt")
 {
     // Register any of the O3CPU's stats here.
     timesIdled
@@ -379,70 +362,6 @@ CPU::CPUStats::CPUStats(CPU *cpu)
 
     quiesceCycles
         .prereq(quiesceCycles);
-
-    // Number of Instructions simulated
-    // --------------------------------
-    // Should probably be in Base CPU but need templated
-    // MaxThreads so put in here instead
-    committedInsts
-        .init(cpu->numThreads)
-        .flags(statistics::total);
-
-    committedOps
-        .init(cpu->numThreads)
-        .flags(statistics::total);
-
-    cpi
-        .precision(6);
-    cpi = cpu->baseStats.numCycles / committedInsts;
-
-    totalCpi
-        .precision(6);
-    totalCpi = cpu->baseStats.numCycles / sum(committedInsts);
-
-    ipc
-        .precision(6);
-    ipc = committedInsts / cpu->baseStats.numCycles;
-
-    totalIpc
-        .precision(6);
-    totalIpc = sum(committedInsts) / cpu->baseStats.numCycles;
-
-    intRegfileReads
-        .prereq(intRegfileReads);
-
-    intRegfileWrites
-        .prereq(intRegfileWrites);
-
-    fpRegfileReads
-        .prereq(fpRegfileReads);
-
-    fpRegfileWrites
-        .prereq(fpRegfileWrites);
-
-    vecRegfileReads
-        .prereq(vecRegfileReads);
-
-    vecRegfileWrites
-        .prereq(vecRegfileWrites);
-
-    vecPredRegfileReads
-        .prereq(vecPredRegfileReads);
-
-    vecPredRegfileWrites
-        .prereq(vecPredRegfileWrites);
-
-    ccRegfileReads
-        .prereq(ccRegfileReads);
-
-    ccRegfileWrites
-        .prereq(ccRegfileWrites);
-
-    miscRegfileReads
-        .prereq(miscRegfileReads);
-
-    miscRegfileWrites
-        .prereq(miscRegfileWrites);
 }
 
 void
@@ -458,6 +377,8 @@ CPU::tick()
 //    activity = false;
 
     //Tick each of the stages
+    bac.tick();
+
     fetch.tick();
 
     decode.tick();
@@ -526,6 +447,7 @@ CPU::startup()
 {
     BaseCPU::startup();
 
+    bac.startupStage();
     fetch.startupStage();
     decode.startupStage();
     iew.startupStage();
@@ -536,13 +458,13 @@ CPU::startup()
 void
 CPU::activateThread(ThreadID tid)
 {
-    std::list<ThreadID>::iterator isActive =
-        std::find(activeThreads.begin(), activeThreads.end(), tid);
+    auto active_it = std::find(
+            activeThreads.begin(), activeThreads.end(), tid);
 
     DPRINTF(O3CPU, "[tid:%i] Calling activate thread.\n", tid);
     assert(!switchedOut());
 
-    if (isActive == activeThreads.end()) {
+    if (active_it == activeThreads.end()) {
         DPRINTF(O3CPU, "[tid:%i] Adding to active threads list\n", tid);
 
         activeThreads.push_back(tid);
@@ -557,18 +479,19 @@ CPU::deactivateThread(ThreadID tid)
     assert(!commit.executingHtmTransaction(tid));
 
     //Remove From Active List, if Active
-    std::list<ThreadID>::iterator thread_it =
-        std::find(activeThreads.begin(), activeThreads.end(), tid);
+    auto active_it = std::find(
+            activeThreads.begin(), activeThreads.end(), tid);
 
     DPRINTF(O3CPU, "[tid:%i] Calling deactivate thread.\n", tid);
     assert(!switchedOut());
 
-    if (thread_it != activeThreads.end()) {
+    if (active_it != activeThreads.end()) {
         DPRINTF(O3CPU,"[tid:%i] Removing from active threads list\n",
                 tid);
-        activeThreads.erase(thread_it);
+        activeThreads.erase(active_it);
     }
 
+    bac.deactivateThread(tid);
     fetch.deactivateThread(tid);
     commit.deactivateThread(tid);
 }
@@ -694,9 +617,9 @@ CPU::insertThread(ThreadID tid)
 
     for (auto type = (RegClassType)0; type <= CCRegClass;
             type = (RegClassType)(type + 1)) {
-        for (RegIndex idx = 0; idx < regClasses.at(type).numRegs(); idx++) {
+        for (auto &id: *regClasses.at(type)) {
             PhysRegIdPtr phys_reg = freeList.getReg(type);
-            renameMap[tid].setEntry(RegId(type, idx), phys_reg);
+            renameMap[tid].setEntry(id, phys_reg);
             scoreboard.setReg(phys_reg);
         }
     }
@@ -732,19 +655,11 @@ CPU::removeThread(ThreadID tid)
     // clear all thread-specific states in each stage of the pipeline
     // since this thread is going to be completely removed from the CPU
     commit.clearStates(tid);
+    bac.clearStates(tid);
     fetch.clearStates(tid);
     decode.clearStates(tid);
     rename.clearStates(tid);
     iew.clearStates(tid);
-
-    // Flush out any old data from the time buffers.
-    for (int i = 0; i < timeBuffer.getSize(); ++i) {
-        timeBuffer.advance();
-        fetchQueue.advance();
-        decodeQueue.advance();
-        renameQueue.advance();
-        iewQueue.advance();
-    }
 
     // at this step, all instructions in the pipeline should be already
     // either committed successfully or squashed. All thread-specific
@@ -752,6 +667,7 @@ CPU::removeThread(ThreadID tid)
     assert(iew.instQueue.getCount(tid) == 0);
     assert(iew.ldstQueue.getCount(tid) == 0);
     assert(commit.rob->isEmpty(tid));
+    assert(ftq.isEmpty(tid));
 
     // Reset ROB/IQ/LSQ Entries
 
@@ -890,6 +806,7 @@ void
 CPU::drainSanityCheck() const
 {
     assert(isCpuDrained());
+    bac.drainSanityCheck();
     fetch.drainSanityCheck();
     decode.drainSanityCheck();
     rename.drainSanityCheck();
@@ -904,6 +821,11 @@ CPU::isCpuDrained() const
 
     if (!instList.empty() || !removeList.empty()) {
         DPRINTF(Drain, "Main CPU structures not drained.\n");
+        drained = false;
+    }
+
+    if (!bac.isDrained()) {
+        DPRINTF(Drain, "BAC not drained.\n");
         drained = false;
     }
 
@@ -935,7 +857,12 @@ CPU::isCpuDrained() const
     return drained;
 }
 
-void CPU::commitDrained(ThreadID tid) { fetch.drainStall(tid); }
+void
+CPU::commitDrained(ThreadID tid)
+{
+    bac.drainStall(tid);
+    fetch.drainStall(tid);
+}
 
 void
 CPU::drainResume()
@@ -946,6 +873,7 @@ CPU::drainResume()
     DPRINTF(Drain, "Resuming...\n");
     verifyMemoryMode();
 
+    bac.drainResume();
     fetch.drainResume();
     commit.drainResume();
 
@@ -985,6 +913,7 @@ CPU::takeOverFrom(BaseCPU *oldCPU)
 {
     BaseCPU::takeOverFrom(oldCPU);
 
+    bac.takeOverFrom();
     fetch.takeOverFrom();
     decode.takeOverFrom();
     rename.takeOverFrom();
@@ -1019,7 +948,7 @@ CPU::readMiscRegNoEffect(int misc_reg, ThreadID tid) const
 RegVal
 CPU::readMiscReg(int misc_reg, ThreadID tid)
 {
-    cpuStats.miscRegfileReads++;
+    executeStats[tid]->numMiscRegReads++;
     return isa[tid]->readMiscReg(misc_reg);
 }
 
@@ -1032,29 +961,29 @@ CPU::setMiscRegNoEffect(int misc_reg, RegVal val, ThreadID tid)
 void
 CPU::setMiscReg(int misc_reg, RegVal val, ThreadID tid)
 {
-    cpuStats.miscRegfileWrites++;
+    executeStats[tid]->numMiscRegWrites++;
     isa[tid]->setMiscReg(misc_reg, val);
 }
 
 RegVal
-CPU::getReg(PhysRegIdPtr phys_reg)
+CPU::getReg(PhysRegIdPtr phys_reg, ThreadID tid)
 {
     switch (phys_reg->classValue()) {
       case IntRegClass:
-        cpuStats.intRegfileReads++;
+        executeStats[tid]->numIntRegReads++;
         break;
       case FloatRegClass:
-        cpuStats.fpRegfileReads++;
+        executeStats[tid]->numFpRegReads++;
         break;
       case CCRegClass:
-        cpuStats.ccRegfileReads++;
+        executeStats[tid]->numCCRegReads++;
         break;
       case VecRegClass:
       case VecElemClass:
-        cpuStats.vecRegfileReads++;
+        executeStats[tid]->numVecRegReads++;
         break;
       case VecPredRegClass:
-        cpuStats.vecPredRegfileReads++;
+        executeStats[tid]->numVecPredRegReads++;
         break;
       default:
         break;
@@ -1063,24 +992,24 @@ CPU::getReg(PhysRegIdPtr phys_reg)
 }
 
 void
-CPU::getReg(PhysRegIdPtr phys_reg, void *val)
+CPU::getReg(PhysRegIdPtr phys_reg, void *val, ThreadID tid)
 {
     switch (phys_reg->classValue()) {
       case IntRegClass:
-        cpuStats.intRegfileReads++;
+        executeStats[tid]->numIntRegReads++;
         break;
       case FloatRegClass:
-        cpuStats.fpRegfileReads++;
+        executeStats[tid]->numFpRegReads++;
         break;
       case CCRegClass:
-        cpuStats.ccRegfileReads++;
+        executeStats[tid]->numCCRegReads++;
         break;
       case VecRegClass:
       case VecElemClass:
-        cpuStats.vecRegfileReads++;
+        executeStats[tid]->numVecRegReads++;
         break;
       case VecPredRegClass:
-        cpuStats.vecPredRegfileReads++;
+        executeStats[tid]->numVecPredRegReads++;
         break;
       default:
         break;
@@ -1089,14 +1018,14 @@ CPU::getReg(PhysRegIdPtr phys_reg, void *val)
 }
 
 void *
-CPU::getWritableReg(PhysRegIdPtr phys_reg)
+CPU::getWritableReg(PhysRegIdPtr phys_reg, ThreadID tid)
 {
     switch (phys_reg->classValue()) {
       case VecRegClass:
-        cpuStats.vecRegfileReads++;
+        executeStats[tid]->numVecRegWrites++;
         break;
       case VecPredRegClass:
-        cpuStats.vecPredRegfileReads++;
+        executeStats[tid]->numVecPredRegWrites++;
         break;
       default:
         break;
@@ -1105,24 +1034,24 @@ CPU::getWritableReg(PhysRegIdPtr phys_reg)
 }
 
 void
-CPU::setReg(PhysRegIdPtr phys_reg, RegVal val)
+CPU::setReg(PhysRegIdPtr phys_reg, RegVal val, ThreadID tid)
 {
     switch (phys_reg->classValue()) {
       case IntRegClass:
-        cpuStats.intRegfileWrites++;
+        executeStats[tid]->numIntRegWrites++;
         break;
       case FloatRegClass:
-        cpuStats.fpRegfileWrites++;
+        executeStats[tid]->numFpRegWrites++;
         break;
       case CCRegClass:
-        cpuStats.ccRegfileWrites++;
+        executeStats[tid]->numCCRegWrites++;
         break;
       case VecRegClass:
       case VecElemClass:
-        cpuStats.vecRegfileWrites++;
+        executeStats[tid]->numVecRegWrites++;
         break;
       case VecPredRegClass:
-        cpuStats.vecPredRegfileWrites++;
+        executeStats[tid]->numVecPredRegWrites++;
         break;
       default:
         break;
@@ -1131,24 +1060,24 @@ CPU::setReg(PhysRegIdPtr phys_reg, RegVal val)
 }
 
 void
-CPU::setReg(PhysRegIdPtr phys_reg, const void *val)
+CPU::setReg(PhysRegIdPtr phys_reg, const void *val, ThreadID tid)
 {
     switch (phys_reg->classValue()) {
       case IntRegClass:
-        cpuStats.intRegfileWrites++;
+        executeStats[tid]->numIntRegWrites++;
         break;
       case FloatRegClass:
-        cpuStats.fpRegfileWrites++;
+        executeStats[tid]->numFpRegWrites++;
         break;
       case CCRegClass:
-        cpuStats.ccRegfileWrites++;
+        executeStats[tid]->numCCRegWrites++;
         break;
       case VecRegClass:
       case VecElemClass:
-        cpuStats.vecRegfileWrites++;
+        executeStats[tid]->numVecRegWrites++;
         break;
       case VecPredRegClass:
-        cpuStats.vecPredRegfileWrites++;
+        executeStats[tid]->numVecPredRegWrites++;
         break;
       default:
         break;
@@ -1159,35 +1088,40 @@ CPU::setReg(PhysRegIdPtr phys_reg, const void *val)
 RegVal
 CPU::getArchReg(const RegId &reg, ThreadID tid)
 {
-    PhysRegIdPtr phys_reg = commitRenameMap[tid].lookup(reg);
+    const RegId flat = reg.flatten(*isa[tid]);
+    PhysRegIdPtr phys_reg = commitRenameMap[tid].lookup(flat);
     return regFile.getReg(phys_reg);
 }
 
 void
 CPU::getArchReg(const RegId &reg, void *val, ThreadID tid)
 {
-    PhysRegIdPtr phys_reg = commitRenameMap[tid].lookup(reg);
+    const RegId flat = reg.flatten(*isa[tid]);
+    PhysRegIdPtr phys_reg = commitRenameMap[tid].lookup(flat);
     regFile.getReg(phys_reg, val);
 }
 
 void *
 CPU::getWritableArchReg(const RegId &reg, ThreadID tid)
 {
-    PhysRegIdPtr phys_reg = commitRenameMap[tid].lookup(reg);
+    const RegId flat = reg.flatten(*isa[tid]);
+    PhysRegIdPtr phys_reg = commitRenameMap[tid].lookup(flat);
     return regFile.getWritableReg(phys_reg);
 }
 
 void
 CPU::setArchReg(const RegId &reg, RegVal val, ThreadID tid)
 {
-    PhysRegIdPtr phys_reg = commitRenameMap[tid].lookup(reg);
+    const RegId flat = reg.flatten(*isa[tid]);
+    PhysRegIdPtr phys_reg = commitRenameMap[tid].lookup(flat);
     regFile.setReg(phys_reg, val);
 }
 
 void
 CPU::setArchReg(const RegId &reg, const void *val, ThreadID tid)
 {
-    PhysRegIdPtr phys_reg = commitRenameMap[tid].lookup(reg);
+    const RegId flat = reg.flatten(*isa[tid]);
+    PhysRegIdPtr phys_reg = commitRenameMap[tid].lookup(flat);
     regFile.setReg(phys_reg, val);
 }
 
@@ -1225,14 +1159,19 @@ CPU::instDone(ThreadID tid, const DynInstPtr &inst)
     if (!inst->isMicroop() || inst->isLastMicroop()) {
         thread[tid]->numInst++;
         thread[tid]->threadStats.numInsts++;
-        cpuStats.committedInsts[tid]++;
+        commitStats[tid]->numInstsNotNOP++;
 
         // Check for instruction-count-based events.
         thread[tid]->comInstEventQueue.serviceEvents(thread[tid]->numInst);
     }
+
+    if (inst->isMemRef()) {
+        thread[tid]->threadStats.numMemRefs++;
+    }
+
     thread[tid]->numOp++;
     thread[tid]->threadStats.numOps++;
-    cpuStats.committedOps[tid]++;
+    commitStats[tid]->numOpsNotNOP++;
 
     probeInstCommit(inst->staticInst, inst->pcState().instAddr());
 }
@@ -1439,13 +1378,19 @@ CPU::getFreeTid()
     return InvalidThreadID;
 }
 
+bool
+CPU::inUserMode(ThreadID tid)
+{
+    return isa[tid]->inUserMode();
+}
+
 void
 CPU::updateThreadPriority()
 {
     if (activeThreads.size() > 1) {
         //DEFAULT TO ROUND ROBIN SCHEME
         //e.g. Move highest priority to end of thread list
-        std::list<ThreadID>::iterator list_begin = activeThreads.begin();
+        auto list_begin = activeThreads.begin();
 
         unsigned high_thread = *list_begin;
 

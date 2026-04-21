@@ -26,9 +26,20 @@
 
 
 from typing import Optional
+
+from m5.objects import (
+    GUPSGen,
+    SrcClockDomain,
+    VoltageDomain,
+)
+from m5.params import (
+    Addr,
+    Port,
+)
+
 from ...utils.override import overrides
+from .abstract_core import AbstractCore
 from .abstract_generator_core import AbstractGeneratorCore
-from m5.objects import Port, GUPSGen, Addr, SrcClockDomain, VoltageDomain
 
 
 class GUPSGeneratorCore(AbstractGeneratorCore):
@@ -44,18 +55,14 @@ class GUPSGeneratorCore(AbstractGeneratorCore):
         """
         super().__init__()
         self.generator = GUPSGen(
-                start_addr=start_addr,
-                mem_size=mem_size,
-                update_limit=update_limit,
-            )
+            start_addr=start_addr, mem_size=mem_size, update_limit=update_limit
+        )
         if clk_freq:
             clock_domain = SrcClockDomain(
                 clock=clk_freq, voltage_domain=VoltageDomain()
             )
             self.generator.clk_domain = clock_domain
 
-
-
-    @overrides(AbstractGeneratorCore)
+    @overrides(AbstractCore)
     def connect_dcache(self, port: Port) -> None:
         self.generator.port = port

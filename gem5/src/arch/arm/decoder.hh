@@ -51,15 +51,17 @@
 #include "cpu/static_inst.hh"
 #include "debug/Decode.hh"
 #include "enums/DecoderFlavor.hh"
-#include "params/ArmDecoder.hh"
 
 namespace gem5
 {
 
+struct ArmDecoderParams;
+
+class BaseISA;
+
 namespace ArmISA
 {
 
-class ISA;
 class Decoder : public InstDecoder
 {
   public: // Public decoder parameters
@@ -84,10 +86,16 @@ class Decoder : public InstDecoder
      */
     int sveLen;
 
+    /**
+     * SME vector length, encoded in the same format as the SMCR_EL<x>.LEN
+     * bitfields.
+     */
+    int smeLen;
+
     enums::DecoderFlavor decoderFlavor;
 
     /// A cache of decoded instruction objects.
-    static GenericISA::BasicDecodeCache<Decoder, ExtMachInst> defaultCache;
+    GenericISA::BasicDecodeCache<Decoder, ExtMachInst> defaultCache;
     friend class GenericISA::BasicDecodeCache<Decoder, ExtMachInst>;
 
     /**
@@ -131,6 +139,7 @@ class Decoder : public InstDecoder
         StaticInstPtr si = defaultCache.decode(this, mach_inst, addr);
         DPRINTF(Decode, "Decode: Decoded %s instruction: %#x\n",
                 si->getName(), mach_inst);
+        si->size((!emi.thumb || emi.bigThumb) ? 4 : 2);
         return si;
     }
 
@@ -156,6 +165,12 @@ class Decoder : public InstDecoder
     setSveLen(uint8_t len)
     {
         sveLen = len;
+    }
+
+    void
+    setSmeLen(uint8_t len)
+    {
+        smeLen = len;
     }
 };
 

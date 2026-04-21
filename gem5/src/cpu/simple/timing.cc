@@ -43,7 +43,6 @@
 
 #include "arch/generic/decoder.hh"
 #include "base/compiler.hh"
-#include "config/the_isa.hh"
 #include "cpu/exetrace.hh"
 #include "debug/Config.hh"
 #include "debug/Drain.hh"
@@ -405,7 +404,9 @@ TimingSimpleCPU::translationFault(const Fault &fault)
         traceFault();
     }
 
-    postExecute();
+    if (fault == NoFault) {
+        postExecute();
+    }
 
     advanceInst(fault);
 }
@@ -865,7 +866,9 @@ TimingSimpleCPU::completeIfetch(PacketPtr pkt)
                 traceFault();
             }
 
-            postExecute();
+            if (fault == NoFault) {
+                postExecute();
+            }
             // @todo remove me after debugging with legion done
             if (curStaticInst && (!curStaticInst->isMicroop() ||
                         curStaticInst->isFirstMicroop()))
@@ -877,13 +880,13 @@ TimingSimpleCPU::completeIfetch(PacketPtr pkt)
         Fault fault = curStaticInst->execute(&t_info, traceData);
 
         // keep an instruction count
-        if (fault == NoFault)
+        if (fault == NoFault) {
+            postExecute();
             countInst();
-        else if (traceData) {
+        } else if (traceData) {
             traceFault();
         }
 
-        postExecute();
         // @todo remove me after debugging with legion done
         if (curStaticInst && (!curStaticInst->isMicroop() ||
                 curStaticInst->isFirstMicroop()))
@@ -1064,15 +1067,14 @@ TimingSimpleCPU::completeDataAccess(PacketPtr pkt)
     }
 
     // keep an instruction count
-    if (fault == NoFault)
+    if (fault == NoFault) {
+        postExecute();
         countInst();
-    else if (traceData) {
+    } else if (traceData) {
         traceFault();
     }
 
     delete pkt;
-
-    postExecute();
 
     advanceInst(fault);
 }

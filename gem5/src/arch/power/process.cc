@@ -65,7 +65,7 @@ PowerProcess::PowerProcess(
 
     Addr stack_base = 0xbf000000L;
 
-    Addr max_stack_size = 8 * 1024 * 1024;
+    Addr max_stack_size = params.maxStackSize;
 
     // Set pointer for next thread stack.  Reserve 8M for main stack.
     Addr next_thread_stack_base = stack_base - max_stack_size;
@@ -122,8 +122,8 @@ PowerProcess::initState()
         loader::Symbol symbol = sym;
 
         // Try to read entry point from function descriptor
-        if (initVirtMem->tryReadBlob(sym.address, &entry, sizeof(Addr)))
-            symbol.address = gtoh(entry, byteOrder);
+        if (initVirtMem->tryReadBlob(sym.address(), &entry, sizeof(Addr)))
+            symbol.relocate(gtoh(entry, byteOrder));
 
         symbolTable->insert(symbol);
     }
@@ -341,7 +341,7 @@ PowerProcess::argsInit(int pageSize)
 
     //Reset the special-purpose registers
     for (int i = int_reg::NumArchRegs; i < int_reg::NumRegs; i++)
-        tc->setReg(RegId(IntRegClass, i), (RegVal)0);
+        tc->setReg(intRegClass[i], (RegVal)0);
 
     //Set the machine status for a typical userspace
     Msr msr = 0;

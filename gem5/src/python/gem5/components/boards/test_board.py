@@ -24,44 +24,54 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from m5.objects import (
-    Port,
-    IOXBar,
-    AddrRange,
+from typing import (
+    List,
+    Optional,
 )
 
-from .mem_mode import MemMode, mem_mode_to_string
+from m5.objects import (
+    IOXBar,
+    PciBus,
+)
+from m5.params import (
+    AddrRange,
+    Port,
+)
+
 from ...utils.override import overrides
-from .abstract_system_board import AbstractSystemBoard
-from ..processors.abstract_processor import AbstractProcessor
-from ..memory.abstract_memory_system import AbstractMemorySystem
 from ..cachehierarchies.abstract_cache_hierarchy import AbstractCacheHierarchy
-
-
-from typing import List
+from ..memory.abstract_memory_system import AbstractMemorySystem
+from ..processors.abstract_generator import AbstractGenerator
+from .abstract_board import AbstractBoard
+from .abstract_system_board import AbstractSystemBoard
 
 
 class TestBoard(AbstractSystemBoard):
-
     """This is a Testing Board used to run traffic generators on a simple
     architecture.
 
     To work as a traffic generator board, pass a generator as a processor.
+
+    This board does not require a cache hierarchy (it can be ``none``) in which
+    case the processor (generator) will be directly connected to the memory.
+    The clock frequency is only used if there is a cache hierarchy or when
+    using the GUPS generators.
     """
 
     def __init__(
         self,
         clk_freq: str,
-        processor: AbstractProcessor,
+        generator: AbstractGenerator,
         memory: AbstractMemorySystem,
-        cache_hierarchy: AbstractCacheHierarchy,
+        cache_hierarchy: Optional[AbstractCacheHierarchy],
     ):
         super().__init__(
-            clk_freq=clk_freq,
-            processor=processor,
+            clk_freq=clk_freq,  # Only used if cache hierarchy or GUPS-gen
+            processor=generator,
             memory=memory,
             cache_hierarchy=cache_hierarchy,
         )
+        self._set_fullsystem(False)
 
     @overrides(AbstractSystemBoard)
     def _setup_board(self) -> None:
@@ -76,6 +86,17 @@ class TestBoard(AbstractSystemBoard):
         raise NotImplementedError(
             "The TestBoard does not have an IO Bus. "
             "Use `has_io_bus()` to check this."
+        )
+
+    @overrides(AbstractSystemBoard)
+    def has_pci_bus(self) -> bool:
+        return False
+
+    @overrides(AbstractSystemBoard)
+    def get_pci_bus(self) -> PciBus:
+        raise NotImplementedError(
+            "The TestBoard does not have an PCI Bus. "
+            "Use `has_pci_bus()` to check this."
         )
 
     @overrides(AbstractSystemBoard)
@@ -112,3 +133,16 @@ class TestBoard(AbstractSystemBoard):
     @overrides(AbstractSystemBoard)
     def has_dma_ports(self) -> bool:
         return False
+
+    @overrides(AbstractBoard)
+    def _connect_things(self) -> None:
+        super()._connect_things()
+
+        if not self.get_cache_hierarchy():
+            # If we have no caches, then there must be a one-to-one
+            # connection between the generators and the memories.
+            assert len(self.get_processor().get_cores()) == 1
+            assert len(self.get_memory().get_mem_ports()) == 1
+            self.get_processor().get_cores()[0].connect_dcache(
+                self.get_memory().get_mem_ports()[0][1]
+            )

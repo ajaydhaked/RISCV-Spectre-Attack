@@ -97,12 +97,12 @@ namespace X86ISA
 EmuLinux::EmuLinux(const Params &p) : SEWorkload(p, PageShift)
 {}
 
-const std::vector<RegIndex> EmuLinux::SyscallABI64::ArgumentRegs = {
+const std::vector<RegId> EmuLinux::SyscallABI64::ArgumentRegs = {
     int_reg::Rdi, int_reg::Rsi, int_reg::Rdx,
     int_reg::R10, int_reg::R8, int_reg::R9
 };
 
-const std::vector<RegIndex> EmuLinux::SyscallABI32::ArgumentRegs = {
+const std::vector<RegId> EmuLinux::SyscallABI32::ArgumentRegs = {
     int_reg::Ebx, int_reg::Ecx, int_reg::Edx,
     int_reg::Esi, int_reg::Edi, int_reg::Ebp
 };
@@ -159,10 +159,10 @@ EmuLinux::pageFault(ThreadContext *tc)
         SETranslatingPortProxy proxy(tc);
         // at this point we should have 6 values on the interrupt stack
         int size = 6;
-        uint64_t is[size];
+        size_t is_bytes = sizeof(uint64_t) * size;
+        auto is = std::make_unique<uint64_t[]>(size);
         // reading the interrupt handler stack
-        proxy.readBlob(ISTVirtAddr + PageBytes - size * sizeof(uint64_t),
-                       &is, sizeof(is));
+        proxy.readBlob(ISTVirtAddr + PageBytes - is_bytes, is.get(), is_bytes);
         panic("Page fault at addr %#x\n\tInterrupt handler stack:\n"
                 "\tss: %#x\n"
                 "\trsp: %#x\n"

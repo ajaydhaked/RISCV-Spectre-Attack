@@ -57,7 +57,6 @@
 namespace gem5
 {
 
-GEM5_DEPRECATED_NAMESPACE(Minor, minor);
 namespace minor
 {
 
@@ -165,6 +164,7 @@ class Fetch2 : public Named
     {
         Fetch2Stats(MinorCPU *cpu);
         /** Stats */
+        statistics::Scalar totalInstructions;
         statistics::Scalar intInstructions;
         statistics::Scalar fpInstructions;
         statistics::Scalar vecInstructions;

@@ -48,18 +48,17 @@ gem5_verify_config(
     fixtures=(),
     verifiers=(),
     config=joinpath(
-        config.base_dir,
-        "configs",
-        "example",
-        "ruby_gpu_random_test.py",
+        config.base_dir, "configs", "example", "ruby_gpu_random_test.py"
     ),
     config_args=[
         "--test-length",
         "50000",
         "--num-dmas",
         "0",
+        "--protocol",
+        "GPU_VIPER",
     ],
-    valid_isas=(constants.vega_x86_tag,),
+    valid_isas=(constants.all_compiled_tag,),
     valid_hosts=constants.supported_hosts,
     length=constants.quick_tag,
 )
@@ -75,7 +74,8 @@ gem5_verify_config(
 #    faster sim)
 #  - use small address range to encourage more races
 #  - use small episode length to encourage more races
-#  - 5M tests runs in ~30 minutes with reasonably good coverage
+#  - 150k tests runs in ~1 hour on Action runners with reasonably good
+#    coverage
 #  - num-dmas = 0 because VIPER doesn't support partial cache line writes,
 #    which DMAs need
 gem5_verify_config(
@@ -83,18 +83,17 @@ gem5_verify_config(
     fixtures=(),
     verifiers=(),
     config=joinpath(
-        config.base_dir,
-        "configs",
-        "example",
-        "ruby_gpu_random_test.py",
+        config.base_dir, "configs", "example", "ruby_gpu_random_test.py"
     ),
     config_args=[
         "--test-length",
-        "5000000",
+        "150000",
         "--num-dmas",
         "0",
+        "--protocol",
+        "GPU_VIPER",
     ],
-    valid_isas=(constants.vega_x86_tag,),
+    valid_isas=(constants.all_compiled_tag,),
     valid_hosts=constants.supported_hosts,
     length=constants.long_tag,
 )

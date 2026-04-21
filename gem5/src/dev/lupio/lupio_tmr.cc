@@ -32,6 +32,7 @@
 #include "debug/LupioTMR.hh"
 #include "mem/packet_access.hh"
 #include "params/LupioTMR.hh"
+#include "sim/system.hh"
 
 // Specific fields for CTRL
 #define LUPIO_TMR_IRQE    0x1
@@ -123,8 +124,8 @@ LupioTMR::lupioTMRRead(uint8_t addr, int size)
 {
     uint32_t r = 0;
 
-    size_t cpu = addr >> LUPIO_TMR_MAX;
-    size_t reg = (addr >> 2) & (LUPIO_TMR_MAX - 1);
+    size_t cpu = addr / LUPIO_TMR_MAX;
+    size_t reg = addr % LUPIO_TMR_MAX;
 
     switch (reg) {
         case LUPIO_TMR_TIME:
@@ -159,8 +160,8 @@ LupioTMR::lupioTMRWrite(uint8_t addr, uint64_t val64, int size)
 {
     uint32_t val = val64;
 
-    size_t cpu = addr >> LUPIO_TMR_MAX;
-    size_t reg = (addr >> 2) & (LUPIO_TMR_MAX - 1);
+    size_t cpu = addr / LUPIO_TMR_MAX;
+    size_t reg = addr % LUPIO_TMR_MAX;
 
     switch (reg) {
         case LUPIO_TMR_LOAD:
