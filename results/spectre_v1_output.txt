@@ -1,0 +1,43 @@
+Global frequency set at 1000000000000 ticks per second
+gem5 Simulator System.  https://www.gem5.org
+gem5 is copyrighted software; use the --copyright option for details.
+
+gem5 version 25.1.0.0
+gem5 compiled Apr 21 2026 14:56:59
+gem5 started Apr 21 2026 16:40:37
+gem5 executing on ubuntu, pid 3305452
+command line: ./gem5/build/RISCV/gem5.opt ./gem5/configs/learning_gem5/part1/two_level.py ./spectre_working
+
+Beginning simulation!
+Reading 30 bytes:
+Reading at malicious_x = 0xfffffffffffd2548... Unclear: 0x44=’D’ score=1 (second best: 0x02 score=1)
+Reading at malicious_x = 0xfffffffffffd2549... Success: 0x6F=’o’ score=1 
+Reading at malicious_x = 0xfffffffffffd254a... Success: 0x20=’ ’ score=1 
+Reading at malicious_x = 0xfffffffffffd254b... Success: 0x6F=’o’ score=1 
+Reading at malicious_x = 0xfffffffffffd254c... Success: 0x72=’r’ score=1 
+Reading at malicious_x = 0xfffffffffffd254d... Success: 0x20=’ ’ score=1 
+Reading at malicious_x = 0xfffffffffffd254e... Success: 0x44=’D’ score=1 
+Reading at malicious_x = 0xfffffffffffd254f... Success: 0x6F=’o’ score=1 
+Reading at malicious_x = 0xfffffffffffd2550... Success: 0x20=’ ’ score=1 
+Reading at malicious_x = 0xfffffffffffd2551... Success: 0x6E=’n’ score=1 
+Reading at malicious_x = 0xfffffffffffd2552... Success: 0x6F=’o’ score=1 
+Reading at malicious_x = 0xfffffffffffd2553... Success: 0x74=’t’ score=1 
+Reading at malicious_x = 0xfffffffffffd2554... Success: 0x2E=’.’ score=1 
+Reading at malicious_x = 0xfffffffffffd2555... Success: 0x20=’ ’ score=1 
+Reading at malicious_x = 0xfffffffffffd2556... Success: 0x54=’T’ score=1 
+Reading at malicious_x = 0xfffffffffffd2557... Success: 0x68=’h’ score=1 
+Reading at malicious_x = 0xfffffffffffd2558... Success: 0x65=’e’ score=1 
+Reading at malicious_x = 0xfffffffffffd2559... Success: 0x72=’r’ score=1 
+Reading at malicious_x = 0xfffffffffffd255a... Success: 0x65=’e’ score=1 
+Reading at malicious_x = 0xfffffffffffd255b... Success: 0x20=’ ’ score=1 
+Reading at malicious_x = 0xfffffffffffd255c... Success: 0x69=’i’ score=1 
+Reading at malicious_x = 0xfffffffffffd255d... Success: 0x73=’s’ score=1 
+Reading at malicious_x = 0xfffffffffffd255e... Success: 0x20=’ ’ score=1 
+Reading at malicious_x = 0xfffffffffffd255f... Success: 0x6E=’n’ score=1 
+Reading at malicious_x = 0xfffffffffffd2560... Success: 0x6F=’o’ score=1 
+Reading at malicious_x = 0xfffffffffffd2561... Success: 0x20=’ ’ score=1 
+Reading at malicious_x = 0xfffffffffffd2562... Success: 0x74=’t’ score=1 
+Reading at malicious_x = 0xfffffffffffd2563... Success: 0x72=’r’ score=1 
+Reading at malicious_x = 0xfffffffffffd2564... Success: 0x79=’y’ score=1 
+Reading at malicious_x = 0xfffffffffffd2565... Success: 0x21=’!’ score=1 
+Exiting @ tick 107237725000 because exiting with last active thread context
